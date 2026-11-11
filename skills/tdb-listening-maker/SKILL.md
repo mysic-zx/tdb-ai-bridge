@@ -7,6 +7,34 @@ description: 通过听读宝的 tdb 命令行工具制作听力文件。当用�
 
 用 `tdb` 命令行操作用户手机上的听读宝：列文件、写复读点、触发合成。
 
+这份手册适用于任何**能在用户电脑上执行终端命令**的 AI 助手：Claude Code、Cursor、Codex、豆包桌面版等都行。前提是手机上的听读宝已开启 AI 接口，且手机和电脑在同一 WiFi。
+
+## 命令怎么执行
+
+下文统一写 `tdb`，实际执行时按下面的优先级替换成真实命令：
+
+1. 用户已全局安装（`npm install -g github:mysic-zx/tdb-ai-bridge`）：直接用 `tdb xxx`
+2. 否则用 `npx github:mysic-zx/tdb-ai-bridge xxx`；**npx 拉 GitHub 超时**（国内网络很常见）时，让用户本地构建一次：
+   ```bash
+   git clone https://github.com/mysic-zx/tdb-ai-bridge.git
+   cd tdb-ai-bridge && npm install && npm run build
+   ```
+   之后所有 `tdb` 都换成 `node <clone路径>/tdb-ai-bridge/dist/index.js xxx`，构建一次后面就稳了。
+3. 判断该用哪种：先直接跑 `tdb --version` 或 `npx github:mysic-zx/tdb-ai-bridge --version`，报 command not found 就换下一种，不要卡在一种上反复重试。
+
+Windows 用户注意：配置文件在 `%USERPROFILE%\.tdb\config.json`（Mac/Linux 是 `~/.tdb/`）；示例里的 `~` 在 PowerShell 里换成 `$env:USERPROFILE`。
+
+## 命令执行超时怎么办
+
+`tdb make --wait` 会一直等到合成结束，大文件要几分钟。如果你的宿主环境对单条命令有超时限制（被中断、超时报错就是这种情况），改用「提交 + 轮询」：
+
+```bash
+tdb make <fileId> --count 2 --json        # 提交，立刻拿 taskId
+tdb task <taskId> --json                  # 每隔 5~10 秒查一次
+```
+
+`task` 返回的 `status` 变成 `succeeded` / `failed` / `cancelled` 就结束了，`succeeded` 时 `output` 里有产物路径。轮询间隔别小于 3 秒。
+
 ## 听读宝开放了哪些能力
 
 App 通过 `capabilities.abilities` 声明能力，当前一共六项。每项都有 CLI 和 MCP 两种调用方式，效果相同：
@@ -90,6 +118,8 @@ tdb repeats <fileId> --json
 tdb set-repeats <fileId> --file repeats.json --mode replace --json
 ```
 
+JSON 文件存到**系统临时目录**（Mac/Linux `/tmp`，Windows `%TEMP%`），别放在用户的工作目录里。
+
 规则：
 - `mode` 默认用 `replace`，幂等，重试安全。
 - `append` 会追加，**重试会写重复**，除非用户明确要求追加才用。
@@ -104,7 +134,7 @@ tdb set-repeats <fileId> --file repeats.json --mode replace --json
 tdb make <fileId> --count 2 --interval auto --rate 0.9 --wait --json
 ```
 
-`--wait` 会轮询到任务结束再返回，合成大文件可能要几分钟，耐心等。
+`--wait` 会轮询到任务结束再返回，合成大文件可能要几分钟。如果你的宿主环境单条命令会超时，改用上面「命令执行超时怎么办」里的提交 + 轮询方式。
 
 - 返回 `succeeded`：把 `output.audioPath` 和时长报给用户，手机 App 里就能看到新文件。
 - 返回 `failed`：把 `error.code` 和 `error.message` 原样转述，别自己解释成网络问题。

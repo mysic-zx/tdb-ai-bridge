@@ -111,6 +111,18 @@ cp -r tdb-ai-bridge/skills/tdb-listening-maker ~/.claude/skills/
 
 装完重启 Claude Code，直接说「帮我把 EnglishPod 第 12 期做成听力文件」就行。Cursor / Codex 等支持 Agent Skills 的工具同样适用，把目录放到它们各自的 skills 路径下即可。
 
+### 其它 AI（豆包桌面版等）
+
+只要 AI 能在你的电脑上执行终端命令，把 `skills/tdb-listening-maker/SKILL.md` 全文贴给它（或放进它的自定义指令）就能用。skill 里已经写好了命令前缀的自动降级（全局 tdb → npx → 本地构建）、命令超时时改轮询、临时文件位置和 Windows 路径差异。
+
+国内网络建议先本地构建一次，避免 AI 每条命令都去 GitHub 拉包：
+
+```bash
+git clone https://github.com/mysic-zx/tdb-ai-bridge.git
+cd tdb-ai-bridge && npm install && npm run build
+# 之后告诉 AI：用 node <clone路径>/dist/index.js 代替 tdb
+```
+
 ## 常见问题
 
 **连不上**：确认手机和电脑在同一 WiFi、App 停在 AI 接口页面、地址和令牌没写错。先跑 `tdb ping`。
