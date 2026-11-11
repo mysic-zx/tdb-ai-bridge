@@ -2,7 +2,7 @@
 
 用外部 AI（Claude Code、Cursor、Codex 等）直接操作听读宝，批量制作听力文件。
 
-这个仓库是**客户端示例**：提供命令行工具、MCP 服务端，以及一份本地假服务端。它不含听读宝 App 的实现，只演示怎么调用 App 开放的 HTTP 接口。
+这个仓库是**客户端工具**：提供命令行工具和 MCP 服务端，让 AI 能连接听读宝 App 开放的局域网 HTTP 接口——列文件、读写复读点、触发听力合成。它不含听读宝 App 的实现，App 侧的服务在手机上开启。
 
 > 协议处于 `0.x` 阶段，字段可能调整。连上设备后先看 `tdb ping` 返回的 `apiVersion`。
 
@@ -10,7 +10,9 @@
 
 - 一个 CLI：`tdb files`、`tdb set-repeats`、`tdb make`
 - 一个 MCP 服务端：`tdb mcp`，给 Claude Code / Cursor / Codex 直接调用
-- 一个 mock 服务端：`tdb mock`，没有手机也能跑通完整流程
+- 一份协议文档和可复制的 AI 提示词 / Skill
+
+需要配合手机上的听读宝 App 使用，没有 App 时这个仓库跑不了真实流程。
 
 ## 它不是什么
 
@@ -19,23 +21,6 @@
 - 不收集任何数据，token 只存在你本机
 
 ## 快速开始
-
-### 没有听读宝 App
-
-```bash
-npm install
-npm run build
-
-# 终端 1：起假服务端
-node dist/index.js mock
-
-# 终端 2：指向假服务端
-node dist/index.js config set --host 127.0.0.1:8799 --token mock
-node dist/index.js ping
-node dist/index.js files
-```
-
-### 有听读宝 App
 
 1. 手机打开「设置 → 实验室 → AI 开放接口」并开启
 2. 记下页面上的地址和令牌，或直接复制配对串
@@ -48,7 +33,7 @@ npx github:mysic-zx/tdb-ai-bridge ping
 
 手机需要保持在这个界面，并且和电脑在同一个 WiFi 下。
 
-## 三种用法
+## 两种用法
 
 ### CLI
 
@@ -80,14 +65,6 @@ claude mcp add tdb \
 | `tdb_make_audio` | 触发合成，可等待完成 |
 | `tdb_get_task` | 查任务 |
 | `tdb_cancel_task` | 取消任务 |
-
-### mock
-
-```bash
-tdb mock --port 8799
-```
-
-返回固定假数据：2 个文件夹、5 个音频、每个 20 条复读点，合成任务 3 秒后完成。CI 和贡献者开发都用它。
 
 ## 协议
 

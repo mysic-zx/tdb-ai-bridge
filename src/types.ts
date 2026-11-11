@@ -1,6 +1,6 @@
 /**
  * 协议类型，与听读宝 AI Bridge 的 HTTP 接口一一对应。
- * 这是协议的唯一类型来源，CLI / MCP / mock 都从这里引用。
+ * 这是协议的唯一类型来源，CLI 和 MCP 都从这里引用。
  */
 
 export interface Capabilities {

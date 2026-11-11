@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs";
 import { TdbApiError, TdbClient } from "../client/tdbClient.js";
 import { configPath, loadConfig, parsePairUrl, saveConfig, type TdbConfig } from "../config.js";
-import { startMockServer } from "../mock/server.js";
 import type { FileListResponse, MakeRequest, Quality, RepeatsResponse, RepeatInput, WriteMode } from "../types.js";
 import { VERSION } from "../version.js";
 import {
@@ -86,8 +85,6 @@ function helpText(): string {
   task <taskId> [--json]        查看任务状态
   wait <taskId> [--json]        轮询直到任务结束
   cancel <taskId>               取消任务
-  mock [--port 8799] [--require-token]
-                                启动本地假服务端，不需要手机
   config show|set|from-url      管理连接配置
   mcp                           以 MCP 服务端运行，给 Claude/Cursor 调用
 
@@ -425,23 +422,6 @@ function runConfig(positional: string[], flags: Map<string, string | true>): num
   throw new UsageError(`不认识的 config 子命令：${action}，可用 show / set / from-url`);
 }
 
-async function runMock(flags: Map<string, string | true>): Promise<number> {
-  const portFlag = numberFlag(flags, "port");
-  const port = portFlag ?? 8799;
-  if (!Number.isInteger(port) || port < 0 || port > 65535) {
-    throw new UsageError("--port 要是 0 ~ 65535 之间的整数");
-  }
-
-  const requireToken = flags.has("require-token");
-  const server = await startMockServer(port, { requireToken });
-  console.log(`mock 服务端已启动 http://127.0.0.1:${server.port}/api/ai`);
-  console.log("另开一个终端执行：");
-  console.log(`  tdb config set --host 127.0.0.1:${server.port}${requireToken ? " --token mock" : ""}`);
-  console.log("按 Ctrl+C 退出。");
-
-  return await new Promise<number>(() => {});
-}
-
 export async function runCli(argv: string[]): Promise<number> {
   const { positional, flags } = parseArgs(argv);
   const command = positional.shift() ?? "help";
@@ -479,8 +459,6 @@ export async function runCli(argv: string[]): Promise<number> {
         return await runCancel(positional, json);
       case "config":
         return runConfig(positional, flags);
-      case "mock":
-        return await runMock(flags);
       default:
         throw new UsageError(`不认识的命令：${command}，执行 tdb --help 看全部命令`);
     }
