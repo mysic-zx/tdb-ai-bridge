@@ -104,6 +104,7 @@ Content-Type: application/json
 把仓库自带的 skill 装进 Claude Code，AI 会自动知道什么时候该用 tdb、怎么用：
 
 ```bash
+# GitHub 访问不动时用 Gitee 镜像：https://gitee.com/mysic-zx/tdb-ai-bridge.git
 git clone https://github.com/mysic-zx/tdb-ai-bridge.git
 mkdir -p ~/.claude/skills
 cp -r tdb-ai-bridge/skills/tdb-listening-maker ~/.claude/skills/
@@ -113,12 +114,12 @@ cp -r tdb-ai-bridge/skills/tdb-listening-maker ~/.claude/skills/
 
 ### 其它 AI（豆包桌面版等）
 
-只要 AI 能在你的电脑上执行终端命令，把 `skills/tdb-listening-maker/SKILL.md` 全文贴给它（或放进它的自定义指令）就能用。skill 里已经写好了命令前缀的自动降级（全局 tdb → npx → 本地构建）、命令超时时改轮询、临时文件位置和 Windows 路径差异。
+只要 AI 能在你的电脑上执行终端命令，把 `skills/tdb-listening-maker/SKILL.md` 全文贴给它（或放进它的自定义指令）就能用。skill 里已经写好了命令前缀的自动降级（全局 tdb → npx GitHub → npx/clone Gitee 镜像 → 本地构建）、命令超时时改轮询、临时文件位置和 Windows 路径差异。
 
-国内网络建议先本地构建一次，避免 AI 每条命令都去 GitHub 拉包：
+国内网络建议先本地构建一次（GitHub 访问不动就用 Gitee 镜像 `https://gitee.com/mysic-zx/tdb-ai-bridge.git`），避免 AI 每条命令都去 GitHub 拉包：
 
 ```bash
-git clone https://github.com/mysic-zx/tdb-ai-bridge.git
+git clone https://gitee.com/mysic-zx/tdb-ai-bridge.git
 cd tdb-ai-bridge && npm install && npm run build
 # 之后告诉 AI：用 node <clone路径>/dist/index.js 代替 tdb
 ```

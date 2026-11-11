@@ -14,13 +14,18 @@ description: 通过听读宝的 tdb 命令行工具制作听力文件。当用�
 下文统一写 `tdb`，实际执行时按下面的优先级替换成真实命令：
 
 1. 用户已全局安装（`npm install -g github:mysic-zx/tdb-ai-bridge`）：直接用 `tdb xxx`
-2. 否则用 `npx github:mysic-zx/tdb-ai-bridge xxx`；**npx 拉 GitHub 超时**（国内网络很常见）时，让用户本地构建一次：
+2. 否则用 `npx github:mysic-zx/tdb-ai-bridge xxx`
+3. **GitHub 拉不动**（国内网络很常见，npx 超时 / clone 失败）：换 Gitee 镜像，两种用法任选：
    ```bash
-   git clone https://github.com/mysic-zx/tdb-ai-bridge.git
+   # 直接从 Gitee 跑（每次执行都这么写）
+   npx git+https://gitee.com/mysic-zx/tdb-ai-bridge.git xxx
+
+   # 或者本地构建一次，之后所有 tdb 都换成 node <clone路径>/dist/index.js xxx
+   git clone https://gitee.com/mysic-zx/tdb-ai-bridge.git
    cd tdb-ai-bridge && npm install && npm run build
    ```
-   之后所有 `tdb` 都换成 `node <clone路径>/tdb-ai-bridge/dist/index.js xxx`，构建一次后面就稳了。
-3. 判断该用哪种：先直接跑 `tdb --version` 或 `npx github:mysic-zx/tdb-ai-bridge --version`，报 command not found 就换下一种，不要卡在一种上反复重试。
+   本地构建一次后面就稳了，推荐。
+4. 判断该用哪种：先跑 `tdb --version` 或 `npx github:mysic-zx/tdb-ai-bridge --version`，报 command not found / 超时就换下一种，不要卡在一种上反复重试。
 
 Windows 用户注意：配置文件在 `%USERPROFILE%\.tdb\config.json`（Mac/Linux 是 `~/.tdb/`）；示例里的 `~` 在 PowerShell 里换成 `$env:USERPROFILE`。
 
