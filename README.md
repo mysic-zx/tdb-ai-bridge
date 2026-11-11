@@ -10,7 +10,7 @@
 
 - 一个 CLI：`tdb files`、`tdb set-repeats`、`tdb make`
 - 一个 MCP 服务端：`tdb mcp`，给 Claude Code / Cursor / Codex 直接调用
-- 一份协议文档和可复制的 AI 提示词 / Skill
+- 一份协议文档和可复制的 AI Skill
 
 需要配合手机上的听读宝 App 使用，没有 App 时这个仓库跑不了真实流程。
 
@@ -95,13 +95,9 @@ Authorization: Bearer <token>
 Content-Type: application/json
 ```
 
-## 提示词
-
-`prompts/listening-maker.md` 里有一段可以直接粘给 Claude 的提示词，描述怎么读文件、切句、写复读点、触发合成。
-
 ## 给 AI 装 Skill
 
-比提示词更省事的办法是把仓库自带的 skill 装进 Claude Code，AI 会自动知道什么时候该用 tdb、怎么用：
+把仓库自带的 skill 装进 Claude Code，AI 会自动知道什么时候该用 tdb、怎么用：
 
 ```bash
 git clone https://github.com/mysic-zx/tdb-ai-bridge.git

@@ -31,8 +31,8 @@ if [ ! -d .git ]; then
   exit 0
 fi
 
-if [ -n "$(git status --porcelain -- src test docs prompts skills examples .github package.json package-lock.json tsconfig.json README.md LICENSE .gitignore init.sh publish.sh)" ]; then
-  git add -- src test docs prompts skills examples .github package.json package-lock.json tsconfig.json README.md LICENSE .gitignore init.sh publish.sh
+if [ -n "$(git status --porcelain -- src test docs skills examples .github package.json package-lock.json tsconfig.json README.md LICENSE .gitignore init.sh publish.sh)" ]; then
+  git add -- src test docs skills examples .github package.json package-lock.json tsconfig.json README.md LICENSE .gitignore init.sh publish.sh
   git commit -m "${MESSAGE}"
 else
   printf '没有需要提交的改动。\n'
