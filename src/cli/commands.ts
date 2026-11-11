@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync, statSync } from "node:fs";
+import { createInterface } from "node:readline/promises";
 import { TdbApiError, TdbClient } from "../client/tdbClient.js";
 import { configPath, loadConfig, parsePairUrl, saveConfig, type TdbConfig } from "../config.js";
 import { runPair } from "./pair.js";
@@ -80,6 +81,9 @@ function helpText(): string {
   pair [--ip 本机IP]            显示二维码，听读宝扫码自动完成配对
   files [--folder 路径] [--keyword 关键词] [--recursive] [--json]
                                 列出音频文件
+  upload <本地文件> [--json]    把电脑上的音频传到听读宝（≤200MB）
+  delete <fileId> [--yes] [--json]
+                                删除听读宝里的音频文件，危险操作
   repeats <fileId> [--json]     读取复读点
   set-repeats <fileId> --file 文件.json [--mode replace|append] [--json]
                                 批量写入复读点
@@ -219,6 +223,63 @@ async function runFiles(flags: Map<string, string | true>, json: boolean): Promi
     return 0;
   }
   printFiles(result);
+  return 0;
+}
+
+async function runUpload(positional: string[], json: boolean): Promise<number> {
+  const localPath = positional[0];
+  if (!localPath) throw new UsageError("缺少本地文件路径，例: tdb upload ~/Music/lesson.mp3");
+  if (!existsSync(localPath)) throw new UsageError(`文件不存在：${localPath}`);
+  const size = statSync(localPath).size;
+  if (size === 0) throw new UsageError("文件是空的");
+
+  const client = new TdbClient(loadConfig());
+  if (!json) {
+    console.log(`正在上传 ${localPath}（${(size / 1024 / 1024).toFixed(1)}MB），大文件需要等一会…`);
+  }
+  const result = await client.uploadFile(localPath);
+  if (json) {
+    console.log(JSON.stringify(result, null, 2));
+    return 0;
+  }
+  if (result.existed) {
+    console.log(`听读宝里已有同名文件，没有重复上传：${result.name}`);
+  } else {
+    console.log(`上传完成：${result.name}（${(result.size / 1024 / 1024).toFixed(1)}MB）`);
+  }
+  console.log(`fileId: ${result.fileId}`);
+  console.log(`下一步: tdb set-repeats ${result.fileId} --file repeats.json`);
+  return 0;
+}
+
+/** CLI 是人直接敲的，删除必须二次确认；AI 走 --json 时也不允许跳过确认。 */
+async function runDelete(positional: string[], flags: Map<string, string | true>, json: boolean): Promise<number> {
+  const fileId = requireFileId(positional);
+  const client = new TdbClient(loadConfig());
+
+  if (json && !flags.has("yes")) {
+    throw new UsageError("AI 不允许直接删除：先把要删的文件报给用户，征得同意后由用户手动执行这条命令");
+  }
+  if (!flags.has("yes")) {
+    const repeats = await client.getRepeats(fileId).catch(() => null);
+    const line = repeats
+      ? `将删除「${repeats.name}」及其 ${repeats.items.length} 条复读点，此操作不可恢复`
+      : `将删除文件 ${fileId}，此操作不可恢复`;
+    const readline = createInterface({ input: process.stdin, output: process.stdout });
+    const answer = await readline.question(`${line}，确认请输入 y：`);
+    readline.close();
+    if (answer.trim().toLowerCase() !== "y") {
+      console.log("已取消");
+      return 1;
+    }
+  }
+
+  const result = await client.deleteFile(fileId);
+  if (json) {
+    console.log(JSON.stringify(result, null, 2));
+    return 0;
+  }
+  console.log(`已删除 ${result.fileId}`);
   return 0;
 }
 
@@ -446,6 +507,10 @@ export async function runCli(argv: string[]): Promise<number> {
         return await runPair(flags);
       case "files":
         return await runFiles(flags, json);
+      case "upload":
+        return await runUpload(positional, json);
+      case "delete":
+        return await runDelete(positional, flags, json);
       case "repeats":
         return await runRepeats(positional, json);
       case "set-repeats":

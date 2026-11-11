@@ -1,3 +1,5 @@
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { basename } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { TdbApiError, type TdbClient } from "../client/tdbClient.js";
@@ -60,6 +62,48 @@ export function registerTools(server: McpServer, client: TdbClient): void {
     async ({ folder, keyword, recursive }) => {
       try {
         return jsonResult(await client.listFiles({ folder, keyword, recursive }));
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.tool(
+    "tdb_upload_file",
+    "把电脑上的音频文件上传到听读宝（≤200MB，常见音视频格式）。返回 fileId，可直接用于写复读点和合成。文件名同名时不覆盖，existed 为 true 表示已存在。",
+    {
+      path: z.string().min(1).describe("电脑上的本地文件绝对路径"),
+    },
+    async ({ path }) => {
+      try {
+        if (!existsSync(path)) {
+          return errorResult(new TdbApiError("INVALID_ARGUMENT", `文件不存在：${path}`, 0));
+        }
+        if (statSync(path).size === 0) {
+          return errorResult(new TdbApiError("INVALID_ARGUMENT", "文件是空的", 0));
+        }
+        return jsonResult(await client.uploadFile(path));
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.tool(
+    "tdb_delete_file",
+    "删除听读宝里的音频文件（连同它的复读点和歌词），不可恢复。调用前必须先把文件名报给用户、征得用户明确同意，用户没点头就不要调这个工具。",
+    {
+      fileId: z.string().min(1).describe("文件 ID"),
+      confirmedByUser: z.boolean().describe("用户是否已明确同意删除这条文件。必须是真实征得同意后的 true"),
+    },
+    async ({ fileId, confirmedByUser }) => {
+      if (!confirmedByUser) {
+        return errorResult(
+          new TdbApiError("FORBIDDEN", "用户还没有明确同意删除。先列出文件名征求同意，再带 confirmedByUser=true 重调", 0),
+        );
+      }
+      try {
+        return jsonResult(await client.deleteFile(fileId));
       } catch (error) {
         return errorResult(error);
       }

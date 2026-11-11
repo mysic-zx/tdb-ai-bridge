@@ -52,10 +52,11 @@ tdb://pair?host=192.168.1.23&port=8765&token=xxx
   "app": "听读宝",
   "version": "3.8.2",
   "apiVersion": 1,
-  "abilities": ["files.read", "repeats.read", "repeats.write", "make.audio"],
+  "abilities": ["files.read", "files.upload", "files.delete", "repeats.read", "repeats.write", "make.audio"],
   "limits": {
     "maxRepeatsPerRequest": 500,
-    "maxConcurrentTasks": 1
+    "maxConcurrentTasks": 1,
+    "maxUploadFileBytes": 209715200
   }
 }
 ```
@@ -89,6 +90,37 @@ tdb://pair?host=192.168.1.23&port=8765&token=xxx
 ```
 
 `repeatCount` 是已有的复读点数量。写之前先看这个值，能避免重复生成。
+
+## POST /files
+
+把电脑上的音频传到听读宝。`multipart/form-data`，文件字段名 `file`。
+
+限制：常见音视频格式（mp3 / m4a / aac / wav / flac / ape / ogg / wma / opus / mp4 / m4v / mov / mkv / avi / webm），单文件 ≤ `limits.maxUploadFileBytes`（当前 200MB），落到 App 的 Documents 根目录。
+
+文件名已存在时不覆盖，直接返回已有文件的信息，重试安全。
+
+响应 `201`（新文件）或 `200`（已存在）：
+
+```json
+{
+  "fileId": "9d1f0c7a2b3e4d5f6a7b8c9d0e1f2a3b",
+  "name": "lesson.mp3",
+  "size": 29384756,
+  "existed": false
+}
+```
+
+`fileId` 就是该文件的 MD5，后续接口都用它。
+
+## DELETE /files/{fileId}
+
+删除一个音频文件，连同它的复读点和歌词一起清掉。**不可恢复**，协议约定 AI 必须先征得用户同意才能调。
+
+响应：
+
+```json
+{ "fileId": "9d1f0c7a2b3e4d5f6a7b8c9d0e1f2a3b", "deleted": true }
+```
 
 ## GET /files/{fileId}/repeats
 

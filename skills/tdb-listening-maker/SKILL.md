@@ -9,21 +9,29 @@ description: 通过听读宝的 tdb 命令行工具制作听力文件。当用�
 
 ## 听读宝开放了哪些能力
 
-App 通过 `capabilities.abilities` 声明能力，当前一共四项。每项都有 CLI 和 MCP 两种调用方式，效果相同：
+App 通过 `capabilities.abilities` 声明能力，当前一共六项。每项都有 CLI 和 MCP 两种调用方式，效果相同：
 
 | 能力 | 能做什么 | CLI | MCP 工具 |
 |---|---|---|---|
 | `files.read` | 列出音频库：文件名、路径、时长、文件夹，支持关键词搜索 | `tdb files` | `tdb_list_files` |
+| `files.upload` | 把电脑上的音频传到听读宝（≤200MB，音视频白名单，同名不覆盖） | `tdb upload <文件>` | `tdb_upload_file` |
+| `files.delete` | 删除音频文件（连同复读点和歌词），**不可恢复** | `tdb delete <fileId>` | `tdb_delete_file` |
 | `repeats.read` | 读某个文件现有的全部复读点（起止时间、原文、翻译） | `tdb repeats` | `tdb_get_repeats` |
 | `repeats.write` | 批量写入复读点，replace 覆盖全部或 append 追加 | `tdb set-repeats` | `tdb_set_repeats` |
 | `make.audio` | 用复读点合成听力文件（每句重复 N 次 + 间隔 + 语速，附带歌词），异步任务可查询、等待、取消 | `tdb make` / `task` / `wait` / `cancel` | `tdb_make_audio` / `tdb_get_task` / `tdb_cancel_task` |
 
-配对与探测不算独立能力，但每次连接都会用到：`tdb ping`（MCP `tdb_capabilities`）确认连通并返回 App 版本、接口版本、能力清单、单次复读点上限（500 条）和并发任务数（1）。
+配对与探测不算独立能力，但每次连接都会用到：`tdb ping`（MCP `tdb_capabilities`）确认连通并返回 App 版本、接口版本、能力清单、单次复读点上限（500 条）、并发任务数（1）和单文件上传上限（200MB）。
 
-**明确没有开放的能力**，用户问起时如实告知，不要用其它命令硬凑：
+**删除是唯一不可恢复的操作**，规则如下：
+
+- 删除前必须把文件名报给用户并征得明确同意，用户没点头就不要调
+- MCP 的 `tdb_delete_file` 要求带 `confirmedByUser: true`；CLI 的 `tdb delete` 不带 `--yes` 会要求人工输入确认
+- 电脑上准备素材的完整闭环：`tdb upload 音频` → 拿到 fileId → `tdb set-repeats` 写分句 → 可选 `tdb make` 合成
+
+**仍然没有开放的能力**，用户问起时如实告知，不要用其它命令硬凑：
 
 - 播放控制（播放、暂停、跳转、切歌）
-- 文件的删除、移动、重命名、导入
+- 文件的移动、重命名；文件夹的创建和删除
 - 词本 / 生词 / Coach 教练数据的读写
 - 订阅、IAP、云盘、WiFi 传输
 - 任何云端接口，全部操作只在局域网内

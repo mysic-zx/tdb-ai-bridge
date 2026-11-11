@@ -1,3 +1,5 @@
+import { readFileSync, statSync } from "node:fs";
+import { basename } from "node:path";
 import type { TdbConfig } from "../config.js";
 import type {
   ApiErrorBody,
@@ -38,6 +40,21 @@ export interface WaitOptions {
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+export interface UploadResult {
+  fileId: string;
+  name: string;
+  size: number;
+  existed: boolean;
+}
+
+export interface DeleteResult {
+  fileId: string;
+  deleted: boolean;
+}
+
+/** 单个上传文件的上限，App 端 limits.maxUploadFileBytes 与此一致 */
+export const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
 
 export class TdbClient {
   constructor(private readonly config: TdbConfig) {}
@@ -120,6 +137,68 @@ export class TdbClient {
       `/files/${encodeURIComponent(fileId)}/repeats`,
       body,
     );
+  }
+
+  /**
+   * 上传本地音频到听读宝。multipart 的超时放宽到 10 分钟，
+   * 200MB 文件在普通 WiFi 上要传一会儿。
+   */
+  async uploadFile(localPath: string): Promise<UploadResult> {
+    const stat = statSync(localPath);
+    if (stat.size > MAX_UPLOAD_BYTES) {
+      throw new TdbApiError("INVALID_ARGUMENT", `文件 ${(stat.size / 1024 / 1024).toFixed(1)}MB 超过 200MB 上限`, 0);
+    }
+
+    const form = new FormData();
+    const blob = new Blob([readFileSync(localPath)]);
+    form.append("file", blob, basename(localPath));
+
+    // request() 只会发 JSON，multipart 单独走一份，错误处理逻辑保持一致
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), Math.max(this.config.timeout, 10 * 60 * 1000));
+    const headers: Record<string, string> = { Accept: "application/json" };
+    if (this.config.token) headers.Authorization = `Bearer ${this.config.token}`;
+
+    try {
+      const response = await fetch(`${this.baseUrl}/files`, {
+        method: "POST",
+        headers,
+        body: form,
+        signal: controller.signal,
+      });
+      const text = await response.text();
+      let data: unknown = {};
+      if (text) {
+        try {
+          data = JSON.parse(text);
+        } catch {
+          throw new TdbApiError("BAD_RESPONSE", `返回的不是 JSON：${text.slice(0, 120)}`, response.status);
+        }
+      }
+      if (!response.ok) {
+        const parsed = data as Partial<ApiErrorBody>;
+        throw new TdbApiError(
+          parsed?.error?.code ?? `HTTP_${response.status}`,
+          parsed?.error?.message ?? `上传失败（HTTP ${response.status}）`,
+          response.status,
+          data,
+        );
+      }
+      return data as UploadResult;
+    } catch (error) {
+      if (error instanceof TdbApiError) throw error;
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new TdbApiError("TIMEOUT", "上传超时，检查手机是否还在前台", 0);
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      throw new TdbApiError("NETWORK", `连不上设备：${message}`, 0);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  deleteFile(fileId: string): Promise<DeleteResult> {
+    return this.request<DeleteResult>("DELETE", `/files/${encodeURIComponent(fileId)}`);
   }
 
   make(body: MakeRequest): Promise<MakeResponse> {
