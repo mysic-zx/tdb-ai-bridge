@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { basename } from "node:path";
+import { basename, join } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { TdbApiError, type TdbClient } from "../client/tdbClient.js";
@@ -181,6 +181,34 @@ export function registerTools(server: McpServer, client: TdbClient): void {
         if (!wait) return jsonResult(created);
         const task = await client.waitForTask(created.taskId, { timeout: timeoutSeconds * 1000 });
         return jsonResult(task);
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.tool(
+    "tdb_download_output",
+    "把合成任务的产物下载到电脑。听读宝的产物在手机沙盒里，电脑上直接拿不到，必须用这个工具把字节拉回来。任务必须已经成功。",
+    {
+      taskId: z.string().min(1).describe("合成任务 ID"),
+      kind: z.enum(["audio", "lrc"]).default("audio").describe("下载音频还是歌词，默认 audio"),
+      outDir: z.string().min(1).describe("保存到电脑上的目录，不存在会自动创建"),
+    },
+    async ({ taskId, kind, outDir }) => {
+      try {
+        const task = await client.getTask(taskId);
+        if (task.status !== "succeeded" || !task.output) {
+          return errorResult(
+            new TdbApiError("TASK_NOT_DONE", `任务还没成功（当前 ${task.status}），等它结束再下载`, 0),
+          );
+        }
+        if (kind === "lrc" && !task.output.lrcPath) {
+          return errorResult(new TdbApiError("NOT_FOUND", "这个任务没有歌词文件", 0));
+        }
+        const audioName = basename(task.output.fileName) || `${taskId}.m4a`;
+        const fileName = kind === "audio" ? audioName : `${audioName.replace(/\.[^.]*$/, "")}.lrc`;
+        return jsonResult(await client.downloadOutput(taskId, kind, join(outDir, fileName)));
       } catch (error) {
         return errorResult(error);
       }

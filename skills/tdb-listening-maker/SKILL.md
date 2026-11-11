@@ -42,7 +42,7 @@ tdb task <taskId> --json                  # 每隔 5~10 秒查一次
 
 ## 听读宝开放了哪些能力
 
-App 通过 `capabilities.abilities` 声明能力，当前一共六项。每项都有 CLI 和 MCP 两种调用方式，效果相同：
+App 通过 `capabilities.abilities` 声明能力，当前一共七项。每项都有 CLI 和 MCP 两种调用方式，效果相同：
 
 | 能力 | 能做什么 | CLI | MCP 工具 |
 |---|---|---|---|
@@ -52,6 +52,7 @@ App 通过 `capabilities.abilities` 声明能力，当前一共六项。每项�
 | `repeats.read` | 读某个文件现有的全部复读点（起止时间、原文、翻译） | `tdb repeats` | `tdb_get_repeats` |
 | `repeats.write` | 批量写入复读点，replace 覆盖全部或 append 追加 | `tdb set-repeats` | `tdb_set_repeats` |
 | `make.audio` | 用复读点合成听力文件（每句重复 N 次 + 间隔 + 语速，附带歌词），异步任务可查询、等待、取消 | `tdb make` / `task` / `wait` / `cancel` | `tdb_make_audio` / `tdb_get_task` / `tdb_cancel_task` |
+| `make.download` | 把合成产物（音频 / 歌词）下载到电脑 | `tdb download` | `tdb_download_output` |
 
 配对与探测不算独立能力，但每次连接都会用到：`tdb ping`（MCP `tdb_capabilities`）确认连通并返回 App 版本、接口版本、能力清单、单次复读点上限（500 条）、并发任务数（1）和单文件上传上限（200MB）。
 
@@ -105,6 +106,8 @@ tdb files --folder /BBC --json         # 指定文件夹
 
 把候选列表给用户看。用户没说清是哪个文件时，先问，不要自己猜。记住 `fileId`，后面都用它。
 
+视频条目（`type: "video"`）的 `duration` 可能返回 `0`，别拿它判断能不能合成；有没有分句看 `repeatCount`。
+
 ### 2. 看现有复读点
 
 ```bash
@@ -129,19 +132,22 @@ JSON 文件存到**系统临时目录**（Mac/Linux `/tmp`，Windows `%TEMP%`）
 - `mode` 默认用 `replace`，幂等，重试安全。
 - `append` 会追加，**重试会写重复**，除非用户明确要求追加才用。
 - 每条写 `start`、`end`、`text`（原文照抄，不要润色）、`translation`（中文翻译）。
-- `end` 必须大于 `start`，不能超过文件时长；一次最多 500 条。
+- `end` 必须大于 `start`，且不超过文件时长 + 0.5 秒（服务端校验 `end <= duration + 0.5`）。复用 App 生成的复读点时，它们可能正好超出时长零点几秒，写入前把 `end` 截到 `duration`；一次最多 500 条。
 
 ### 4. 触发合成
 
-三个参数问用户（或从他的原始需求里拿），不要替他拍板：每句重复几次（默认 2）、间隔（`auto` 或具体秒数）、语速（0.5~2.0，复习可更慢）。
+三个参数问用户（或从他的原始需求里拿），不要替他拍板：每句额外重复几次（不含原句，默认 2）、间隔（`auto` 或具体秒数）、语速（0.5~2.0，复习可更慢）。
 
 ```bash
-tdb make <fileId> --count 2 --interval auto --rate 0.9 --wait --json
+tdb make <fileId> --count 2 --interval auto --rate 0.9 --wait --download ./out --json
 ```
+
+`--download <目录>` 会在合成成功后把音频（有歌词的话连歌词一起）拉到电脑上，适合用户要"做完给我一份"的场景。只提交不等时不能带 `--download`。
 
 `--wait` 会轮询到任务结束再返回，合成大文件可能要几分钟。如果你的宿主环境单条命令会超时，改用上面「命令执行超时怎么办」里的提交 + 轮询方式。
 
-- 返回 `succeeded`：把 `output.audioPath` 和时长报给用户，手机 App 里就能看到新文件。
+- 返回 `succeeded`：把 `output.audioPath`、`output.duration`（有的话再加 `output.lrcPath`）报给用户。产物写在 App 沙盒的 `tmp/AudioMake/`（听力制作页的输出目录），**不会**出现在 `tdb files` 的音频库列表里，别去列表里找。`audioPath` 是手机沙盒内的绝对路径，电脑上打不开。
+- 用户要在电脑上拿到文件时：合成时直接带 `--download <目录>`，或者对已成功的任务跑 `tdb download <taskId> --out <路径>`。MCP 用 `tdb_download_output`，必须传 `outDir`。
 - 返回 `failed`：把 `error.code` 和 `error.message` 原样转述，别自己解释成网络问题。
 - 报 `TASK_RUNNING`：App 里已有任务在跑，body 里带 `taskId`，问用户等还是 `tdb cancel <taskId>`。
 

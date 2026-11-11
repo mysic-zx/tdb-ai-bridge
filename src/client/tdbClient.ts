@@ -1,5 +1,6 @@
-import { readFileSync, statSync } from "node:fs";
-import { basename } from "node:path";
+import { randomBytes } from "node:crypto";
+import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { basename, dirname } from "node:path";
 import type { TdbConfig } from "../config.js";
 import type {
   ApiErrorBody,
@@ -51,6 +52,13 @@ export interface UploadResult {
 export interface DeleteResult {
   fileId: string;
   deleted: boolean;
+}
+
+export interface DownloadedOutput {
+  kind: "audio" | "lrc";
+  /** 落到电脑上的路径 */
+  path: string;
+  size: number;
 }
 
 /** 单个上传文件的上限，App 端 limits.maxUploadFileBytes 与此一致 */
@@ -149,21 +157,36 @@ export class TdbClient {
       throw new TdbApiError("INVALID_ARGUMENT", `文件 ${(stat.size / 1024 / 1024).toFixed(1)}MB 超过 200MB 上限`, 0);
     }
 
-    const form = new FormData();
-    const blob = new Blob([readFileSync(localPath)]);
-    form.append("file", blob, basename(localPath));
+    // 手工拼 multipart：undici 的 FormData 在结束 boundary 后不补 CRLF，
+    // 听读宝内置的 GCDWebServer 解析器会判成请求未结束，直接回 500。
+    const fileName = basename(localPath);
+    const boundary = `----tdb-${randomBytes(16).toString("hex")}`;
+    const escapedName = fileName.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    const body = Buffer.concat([
+      Buffer.from(
+        `--${boundary}\r\n` +
+          `Content-Disposition: form-data; name="file"; filename="${escapedName}"\r\n` +
+          `Content-Type: application/octet-stream\r\n\r\n`,
+      ),
+      readFileSync(localPath),
+      Buffer.from(`\r\n--${boundary}--\r\n`),
+    ]);
 
     // request() 只会发 JSON，multipart 单独走一份，错误处理逻辑保持一致
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), Math.max(this.config.timeout, 10 * 60 * 1000));
-    const headers: Record<string, string> = { Accept: "application/json" };
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+      "Content-Type": `multipart/form-data; boundary=${boundary}`,
+      "Content-Length": String(body.length),
+    };
     if (this.config.token) headers.Authorization = `Bearer ${this.config.token}`;
 
     try {
       const response = await fetch(`${this.baseUrl}/files`, {
         method: "POST",
         headers,
-        body: form,
+        body,
         signal: controller.signal,
       });
       const text = await response.text();
@@ -189,6 +212,62 @@ export class TdbClient {
       if (error instanceof TdbApiError) throw error;
       if (error instanceof Error && error.name === "AbortError") {
         throw new TdbApiError("TIMEOUT", "上传超时，检查手机是否还在前台", 0);
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      throw new TdbApiError("NETWORK", `连不上设备：${message}`, 0);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * 把合成产物下载到电脑。audioPath 在 App 沙盒里，电脑上拿不到，
+   * 必须走这个接口把字节拉回来。
+   */
+  async downloadOutput(taskId: string, kind: "audio" | "lrc", outPath: string): Promise<DownloadedOutput> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), Math.max(this.config.timeout, 10 * 60 * 1000));
+    const headers: Record<string, string> = { Accept: "application/octet-stream" };
+    if (this.config.token) headers.Authorization = `Bearer ${this.config.token}`;
+
+    try {
+      const response = await fetch(
+        `${this.baseUrl}/tasks/${encodeURIComponent(taskId)}/output?kind=${kind}`,
+        { headers, signal: controller.signal },
+      );
+      if (!response.ok) {
+        const text = await response.text();
+        let body: unknown = {};
+        try {
+          body = text ? JSON.parse(text) : {};
+        } catch {
+          body = {};
+        }
+        const parsed = body as Partial<ApiErrorBody>;
+        throw new TdbApiError(
+          parsed?.error?.code ?? `HTTP_${response.status}`,
+          parsed?.error?.message ?? `下载失败（HTTP ${response.status}）`,
+          response.status,
+          body,
+        );
+      }
+      // 老版本 App 没有 /output 路由，会落到 GET /tasks/{id} 上返回 200 + 任务 JSON
+      const contentType = response.headers.get("content-type") ?? "";
+      if (contentType.includes("application/json")) {
+        throw new TdbApiError(
+          "NOT_SUPPORTED",
+          "设备端还不支持下载（返回的是任务 JSON），先升级听读宝",
+          response.status,
+        );
+      }
+      const bytes = Buffer.from(await response.arrayBuffer());
+      mkdirSync(dirname(outPath), { recursive: true });
+      writeFileSync(outPath, bytes);
+      return { kind, path: outPath, size: bytes.length };
+    } catch (error) {
+      if (error instanceof TdbApiError) throw error;
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new TdbApiError("TIMEOUT", "下载超时，检查手机是否还在前台", 0);
       }
       const message = error instanceof Error ? error.message : String(error);
       throw new TdbApiError("NETWORK", `连不上设备：${message}`, 0);

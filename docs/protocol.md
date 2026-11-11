@@ -40,6 +40,7 @@ tdb://pair?host=192.168.1.23&port=8765&token=xxx
 | 403 | `FORBIDDEN` | 非局域网来源 |
 | 404 | `NOT_FOUND` | 文件或任务不存在 |
 | 409 | `TASK_RUNNING` | 已有合成任务在跑 |
+| 409 | `TASK_NOT_DONE` | 任务失败或已取消，没有可用产物 |
 | 422 | `VALIDATION_FAILED` | 复读点时间非法（end <= start） |
 | 500 | `INTERNAL` | 未预期异常 |
 
@@ -52,7 +53,7 @@ tdb://pair?host=192.168.1.23&port=8765&token=xxx
   "app": "听读宝",
   "version": "3.8.2",
   "apiVersion": 1,
-  "abilities": ["files.read", "files.upload", "files.delete", "repeats.read", "repeats.write", "make.audio"],
+  "abilities": ["files.read", "files.upload", "files.delete", "repeats.read", "repeats.write", "make.audio", "make.download"],
   "limits": {
     "maxRepeatsPerRequest": 500,
     "maxConcurrentTasks": 1,
@@ -240,11 +241,44 @@ tdb://pair?host=192.168.1.23&port=8765&token=xxx
 ```json
 {
   "fileName": "EnglishPod_012_听力.m4a",
-  "audioPath": "/exports/EnglishPod_012_听力.m4a",
-  "lrcPath": "/exports/EnglishPod_012_听力.lrc",
+  "audioPath": "/var/mobile/Containers/Data/Application/.../tmp/AudioMake/EnglishPod_012_听力.m4a",
+  "lrcPath": "/var/mobile/Containers/Data/Application/.../tmp/AudioMake/EnglishPod_012_听力.lrc",
   "duration": 4123.8
 }
 ```
+
+`audioPath` / `lrcPath` 是 App 沙盒里的绝对路径，电脑上访问不到，取文件走下面的下载接口。
+
+## GET /tasks/{taskId}/output
+
+把合成产物下载到电脑。响应是文件字节，不是 JSON。
+
+| 参数 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `kind` | string | 否 | `audio`（默认）或 `lrc` |
+
+```bash
+curl -H "Authorization: Bearer <token>" \
+  "http://192.168.1.23:8765/api/ai/tasks/<taskId>/output?kind=audio" \
+  -o "EnglishPod_012_听力.m4a"
+```
+
+响应头：
+
+```
+Content-Type: audio/x-m4a
+Content-Disposition: attachment; filename="EnglishPod_012_听力.m4a"; filename*=UTF-8''EnglishPod_012_%E5%90%AC%E5%8A%9B.m4a
+Content-Length: 7340032
+```
+
+`kind=lrc` 时 `Content-Type` 是 `text/plain; charset=utf-8`。
+
+| 情况 | HTTP | code |
+|---|---|---|
+| 任务不存在 | 404 | `NOT_FOUND` |
+| 任务还没结束 | 409 | `TASK_RUNNING`（body 带 taskId 和当前 status） |
+| 任务失败或取消 | 409 | `TASK_NOT_DONE` |
+| 产物已不存在，或该任务没有歌词 | 404 | `NOT_FOUND` |
 
 状态机：
 

@@ -1,9 +1,10 @@
 import { readFileSync, existsSync, statSync } from "node:fs";
+import { basename, join } from "node:path";
 import { createInterface } from "node:readline/promises";
-import { TdbApiError, TdbClient } from "../client/tdbClient.js";
+import { TdbApiError, TdbClient, type DownloadedOutput } from "../client/tdbClient.js";
 import { configPath, loadConfig, parsePairUrl, saveConfig, type TdbConfig } from "../config.js";
 import { runPair } from "./pair.js";
-import type { FileListResponse, MakeRequest, Quality, RepeatsResponse, RepeatInput, WriteMode } from "../types.js";
+import type { FileListResponse, MakeRequest, Quality, RepeatsResponse, RepeatInput, Task, WriteMode } from "../types.js";
 import { VERSION } from "../version.js";
 import {
   STATUS_LABEL,
@@ -90,17 +91,20 @@ function helpText(): string {
   make <fileId> [选项]          触发听力文件合成
   task <taskId> [--json]        查看任务状态
   wait <taskId> [--json]        轮询直到任务结束
+  download <taskId> [--kind audio|lrc] [--out 路径] [--json]
+                                把合成产物下载到电脑
   cancel <taskId>               取消任务
   config show|set|from-url      管理连接配置
   mcp                           以 MCP 服务端运行，给 Claude/Cursor 调用
 
 make 选项:
-  --count 2         每句重复次数
+  --count 2         每句重复次数（不含原句）
   --interval auto   间隔秒数或 auto
   --rate 0.9        语速，0.5 ~ 2.0
   --quality high    high | medium | low
   --name 文件名     输出文件名
   --wait            提交后等合成完成
+  --download 目录   合成完自动把音频和歌词下载到该目录（需配合 --wait）
   --json            JSON 输出
 
 配置优先级: 环境变量 TDB_HOST / TDB_TOKEN > ${configPath()}
@@ -320,10 +324,41 @@ async function runSetRepeats(
   return 0;
 }
 
-async function waitTask(client: TdbClient, taskId: string, json: boolean): Promise<number> {
+function lrcFileName(audioFileName: string): string {
+  const name = basename(audioFileName);
+  const dot = name.lastIndexOf(".");
+  return `${dot > 0 ? name.slice(0, dot) : name}.lrc`;
+}
+
+async function downloadOutputs(client: TdbClient, task: Task, outDir: string): Promise<DownloadedOutput[]> {
+  if (!task.output) return [];
+  const audioName = basename(task.output.fileName) || `${task.taskId}.m4a`;
+  const targets: Array<{ kind: "audio" | "lrc"; name: string }> = [{ kind: "audio", name: audioName }];
+  if (task.output.lrcPath) {
+    targets.push({ kind: "lrc", name: lrcFileName(audioName) });
+  }
+  const results: DownloadedOutput[] = [];
+  for (const target of targets) {
+    results.push(await client.downloadOutput(task.taskId, target.kind, join(outDir, target.name)));
+  }
+  return results;
+}
+
+function printDownloads(downloads: DownloadedOutput[]): void {
+  for (const item of downloads) {
+    console.log(`已保存 ${item.path}（${(item.size / 1024 / 1024).toFixed(1)}MB）`);
+  }
+}
+
+async function waitTask(client: TdbClient, taskId: string, json: boolean, downloadDir?: string): Promise<number> {
   if (json) {
     const task = await client.waitForTask(taskId);
-    console.log(JSON.stringify(task, null, 2));
+    if (downloadDir && task.status === "succeeded") {
+      const downloads = await downloadOutputs(client, task, downloadDir);
+      console.log(JSON.stringify({ task, downloads }, null, 2));
+    } else {
+      console.log(JSON.stringify(task, null, 2));
+    }
     return task.status === "succeeded" ? 0 : 1;
   }
 
@@ -342,6 +377,9 @@ async function waitTask(client: TdbClient, taskId: string, json: boolean): Promi
     console.log(`合成完成 ${task.output.audioPath}`);
     if (task.output.lrcPath) console.log(`歌词文件 ${task.output.lrcPath}`);
     console.log(`时长 ${formatDuration(task.output.duration)}`);
+    if (downloadDir) {
+      printDownloads(await downloadOutputs(client, task, downloadDir));
+    }
     return 0;
   }
   if (task.status === "cancelled") {
@@ -382,12 +420,17 @@ async function runMake(positional: string[], flags: Map<string, string | true>, 
   const outputName = stringFlag(flags, "name");
   if (outputName !== undefined) body.outputName = outputName;
 
+  const downloadDir = stringFlag(flags, "download");
+  if (downloadDir !== undefined && !flags.has("wait")) {
+    throw new UsageError("--download 要和 --wait 一起用，否则任务还没结束");
+  }
+
   const client = new TdbClient(loadConfig());
   const created = await client.make(body);
 
   if (flags.has("wait")) {
     if (!json) console.log(`任务已创建 ${created.taskId}`);
-    return await waitTask(client, created.taskId, json);
+    return await waitTask(client, created.taskId, json, downloadDir);
   }
 
   if (json) {
@@ -427,6 +470,43 @@ async function runCancel(positional: string[], json: boolean): Promise<number> {
     return 0;
   }
   console.log(`任务 ${result.taskId} 现在是 ${STATUS_LABEL[result.status]}`);
+  return 0;
+}
+
+async function runDownload(
+  positional: string[],
+  flags: Map<string, string | true>,
+  json: boolean,
+): Promise<number> {
+  const taskId = positional[0];
+  if (!taskId) throw new UsageError("缺少 taskId，可以先用 tdb task <taskId> 确认合成完成");
+
+  const kindFlag = stringFlag(flags, "kind") ?? "audio";
+  if (kindFlag !== "audio" && kindFlag !== "lrc") {
+    throw new UsageError("--kind 只能是 audio 或 lrc");
+  }
+  const kind = kindFlag as "audio" | "lrc";
+
+  const client = new TdbClient(loadConfig());
+  const task = await client.getTask(taskId);
+  if (task.status !== "succeeded" || !task.output) {
+    throw new UsageError(`任务 ${taskId} 还没成功（当前 ${task.status}），等它结束再来下载`);
+  }
+  if (kind === "lrc" && !task.output.lrcPath) {
+    throw new UsageError("这个任务没有歌词文件");
+  }
+
+  const fileName = kind === "audio" ? basename(task.output.fileName) : lrcFileName(task.output.fileName);
+  const outPath =
+    stringFlag(flags, "out") ??
+    join(process.cwd(), fileName || `${taskId}.${kind === "audio" ? "m4a" : "lrc"}`);
+  const result = await client.downloadOutput(taskId, kind, outPath);
+
+  if (json) {
+    console.log(JSON.stringify(result, null, 2));
+    return 0;
+  }
+  console.log(`已保存 ${result.path}（${(result.size / 1024 / 1024).toFixed(1)}MB）`);
   return 0;
 }
 
@@ -524,6 +604,8 @@ export async function runCli(argv: string[]): Promise<number> {
         if (!taskId) throw new UsageError("缺少 taskId");
         return await waitTask(new TdbClient(loadConfig()), taskId, json);
       }
+      case "download":
+        return await runDownload(positional, flags, json);
       case "cancel":
         return await runCancel(positional, json);
       case "config":
