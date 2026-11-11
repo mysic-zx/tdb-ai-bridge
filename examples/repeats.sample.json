@@ -1,0 +1,35 @@
+{
+  "mode": "replace",
+  "items": [
+    {
+      "start": 0.0,
+      "end": 3.42,
+      "text": "Good morning, everyone. Welcome to EnglishPod.",
+      "translation": "大家早上好，欢迎收听 EnglishPod。"
+    },
+    {
+      "start": 3.42,
+      "end": 7.86,
+      "text": "Today we are talking about travel.",
+      "translation": "今天我们来聊聊旅行。"
+    },
+    {
+      "start": 7.86,
+      "end": 12.1,
+      "text": "Where would you like to go this summer?",
+      "translation": "这个夏天你想去哪里？"
+    },
+    {
+      "start": 12.1,
+      "end": 16.35,
+      "text": "I have always wanted to visit Iceland.",
+      "translation": "我一直想去冰岛看看。"
+    },
+    {
+      "start": 16.35,
+      "end": 20.8,
+      "text": "That sounds like a great idea.",
+      "translation": "这听起来是个好主意。"
+    }
+  ]
+}
