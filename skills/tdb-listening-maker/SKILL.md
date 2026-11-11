@@ -15,7 +15,9 @@ description: 通过听读宝的 tdb 命令行工具制作听力文件。当用�
 npx github:mysic-zx/tdb-ai-bridge ping
 ```
 
-- 报 `NO_HOST`：用户还没配置。让他打开听读宝「设置 → 实验室 → AI 开放接口」，把页面上的配对串（形如 `tdb://pair?host=192.168.1.23&port=8765&token=xxx`）发给你，然后执行：
+- 报 `NO_HOST`：用户还没配置，引导配对，两种方式：
+  1. **扫码配对**：让用户在电脑上跑 `tdb pair`，终端会出二维码；用户在听读宝「设置 → 实验室 → AI 开放接口」页点「扫描电脑二维码」扫码，配对自动完成。跑完再 `tdb ping` 确认。
+  2. **手动复制**：扫码不行（比如电脑防火墙拦了、或听读宝跑在 Mac 上没摄像头）时，让用户在听读宝页面点「复制配对串」，把串（形如 `tdb://pair?host=192.168.1.23&port=8765&token=xxx`）发给你，你执行：
 
 ```bash
 npx github:mysic-zx/tdb-ai-bridge config from-url "配对串"

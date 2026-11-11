@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { TdbApiError, TdbClient } from "../client/tdbClient.js";
 import { configPath, loadConfig, parsePairUrl, saveConfig, type TdbConfig } from "../config.js";
+import { runPair } from "./pair.js";
 import type { FileListResponse, MakeRequest, Quality, RepeatsResponse, RepeatInput, WriteMode } from "../types.js";
 import { VERSION } from "../version.js";
 import {
@@ -76,6 +77,7 @@ function helpText(): string {
 
 命令:
   ping                          检查设备地址和令牌是否可用
+  pair [--ip 本机IP]            显示二维码，听读宝扫码自动完成配对
   files [--folder 路径] [--keyword 关键词] [--recursive] [--json]
                                 列出音频文件
   repeats <fileId> [--json]     读取复读点
@@ -440,6 +442,8 @@ export async function runCli(argv: string[]): Promise<number> {
     switch (command) {
       case "ping":
         return await runPing(json);
+      case "pair":
+        return await runPair(flags);
       case "files":
         return await runFiles(flags, json);
       case "repeats":
