@@ -70,11 +70,16 @@ export function registerTools(server: McpServer, client: TdbClient): void {
 
   server.tool(
     "tdb_upload_file",
-    "把电脑上的音频文件上传到听读宝（≤200MB，常见音视频格式）。返回 fileId，可直接用于写复读点和合成。文件名同名时不覆盖，existed 为 true 表示已存在。",
+    "把电脑上的音频文件上传到听读宝（≤200MB，常见音视频格式）。返回 fileId，可直接用于写复读点和合成。文件名同名时不覆盖，existed 为 true 表示已存在。folder 可选，只能是听读宝 Documents 下已存在的一级子目录名，省略则落在根目录。",
     {
       path: z.string().min(1).describe("电脑上的本地文件绝对路径"),
+      folder: z
+        .string()
+        .min(1)
+        .optional()
+        .describe("目标文件夹名：必须是听读宝 Documents 下已存在的一级子目录，不能带 / 或 ..；省略则落在根目录"),
     },
-    async ({ path }) => {
+    async ({ path, folder }) => {
       try {
         if (!existsSync(path)) {
           return errorResult(new TdbApiError("INVALID_ARGUMENT", `文件不存在：${path}`, 0));
@@ -82,7 +87,7 @@ export function registerTools(server: McpServer, client: TdbClient): void {
         if (statSync(path).size === 0) {
           return errorResult(new TdbApiError("INVALID_ARGUMENT", "文件是空的", 0));
         }
-        return jsonResult(await client.uploadFile(path));
+        return jsonResult(await client.uploadFile(path, folder));
       } catch (error) {
         return errorResult(error);
       }
@@ -91,19 +96,48 @@ export function registerTools(server: McpServer, client: TdbClient): void {
 
   server.tool(
     "tdb_delete_file",
-    "删除听读宝里的音频文件（连同它的复读点和歌词），不可恢复。调用前必须先把文件名报给用户、征得用户明确同意，用户没点头就不要调这个工具。",
+    "删除听读宝里的音频/视频文件（连同它的复读点和歌词），或递归删除整个文件夹，不可恢复。调用前必须先把文件名报给用户、征得用户明确同意，用户没点头就不要调这个工具。文件夹的 fileId 以 dir_ 开头，删除时必须显式带 recursive=true。",
     {
-      fileId: z.string().min(1).describe("文件 ID"),
-      confirmedByUser: z.boolean().describe("用户是否已明确同意删除这条文件。必须是真实征得同意后的 true"),
+      fileId: z.string().min(1).describe("文件 ID；文件夹 ID 以 dir_ 开头"),
+      confirmedByUser: z.boolean().describe("用户是否已明确同意删除。必须是真实征得同意后的 true"),
+      recursive: z
+        .boolean()
+        .optional()
+        .describe("删除文件夹时必填 true，会连同里面所有文件和复读点一起删；删单个文件不用传"),
     },
-    async ({ fileId, confirmedByUser }) => {
+    async ({ fileId, confirmedByUser, recursive }) => {
       if (!confirmedByUser) {
         return errorResult(
           new TdbApiError("FORBIDDEN", "用户还没有明确同意删除。先列出文件名征求同意，再带 confirmedByUser=true 重调", 0),
         );
       }
+      if (fileId.startsWith("dir_") && !recursive) {
+        return errorResult(
+          new TdbApiError(
+            "INVALID_ARGUMENT",
+            "这是文件夹，删除会连同里面的文件和复读点一起删掉。确认这是用户想要的之后，带 recursive=true 重调",
+            0,
+          ),
+        );
+      }
       try {
-        return jsonResult(await client.deleteFile(fileId));
+        return jsonResult(await client.deleteFile(fileId, { recursive }));
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.tool(
+    "tdb_rename_file",
+    "重命名听读宝里的音频/视频文件或文件夹，只在原目录改名，不能换文件夹。文件不写后缀时沿用原后缀，旁边的同名歌词会一起改。文件改名后 fileId（md5）不变；文件夹改名后 fileId 会变，旧的 dir_ 开头 id 作废。",
+    {
+      fileId: z.string().min(1).describe("要改名的文件或文件夹 ID"),
+      name: z.string().min(1).describe("新名字；文件可以不写后缀，会自动沿用原后缀；不能带 / \\ :"),
+    },
+    async ({ fileId, name }) => {
+      try {
+        return jsonResult(await client.renameFile(fileId, name));
       } catch (error) {
         return errorResult(error);
       }

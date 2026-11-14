@@ -57,12 +57,15 @@ npx github:mysic-zx/tdb-ai-bridge ping
 
 ```bash
 tdb upload ~/Downloads/lesson.mp3        # 把电脑上的音频传到听读宝
+tdb upload ~/Downloads/lesson.mp3 --folder 听力
 tdb files --keyword EnglishPod
+tdb rename <fileId> 第01课                # 改名，只能在原目录
 tdb repeats <fileId>
 tdb set-repeats <fileId> --file examples/repeats.sample.json --mode replace
 tdb make <fileId> --count 2 --interval auto --rate 0.9
 tdb wait <taskId>
 tdb delete <fileId>                      # 删除文件，需要输入 y 确认
+tdb delete dir_xxx --recursive           # 递归删除文件夹
 ```
 
 ### MCP
@@ -81,7 +84,8 @@ claude mcp add tdb \
 | `tdb_capabilities` | 能力探测 |
 | `tdb_list_files` | 列文件 |
 | `tdb_upload_file` | 上传电脑上的音频到听读宝 |
-| `tdb_delete_file` | 删除文件（要求先征得用户同意） |
+| `tdb_rename_file` | 重命名文件或文件夹 |
+| `tdb_delete_file` | 删除文件或文件夹（要求先征得用户同意） |
 | `tdb_get_repeats` | 读复读点 |
 | `tdb_set_repeats` | 批量写复读点 |
 | `tdb_make_audio` | 触发合成，可等待完成 |

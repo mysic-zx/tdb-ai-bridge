@@ -52,13 +52,14 @@ tdb task <taskId> --json                  # 每隔 5~10 秒查一次
 
 ## 听读宝开放了哪些能力
 
-App 通过 `capabilities.abilities` 声明能力，当前一共七项。每项都有 CLI 和 MCP 两种调用方式，效果相同：
+App 通过 `capabilities.abilities` 声明能力，当前一共八项。每项都有 CLI 和 MCP 两种调用方式，效果相同：
 
 | 能力 | 能做什么 | CLI | MCP 工具 |
 |---|---|---|---|
 | `files.read` | 列出音频库：文件名、路径、时长、大小、文件夹，支持关键词搜索 | `tdb files` | `tdb_list_files` |
-| `files.upload` | 把电脑上的音频传到听读宝（≤200MB，音视频白名单，同名不覆盖） | `tdb upload <文件>` | `tdb_upload_file` |
-| `files.delete` | 删除音频文件（连同复读点和歌词），**不可恢复** | `tdb delete <fileId>` | `tdb_delete_file` |
+| `files.upload` | 把电脑上的音频传到听读宝（≤200MB，音视频白名单，同名不覆盖，可指定已存在的一级子目录） | `tdb upload <文件> [--folder 目录]` | `tdb_upload_file` |
+| `files.rename` | 重命名音频/视频文件或文件夹，只在原目录改名，歌词跟着走 | `tdb rename <fileId> <新名字>` | `tdb_rename_file` |
+| `files.delete` | 删除文件（连同复读点和歌词）或递归删除文件夹，**不可恢复** | `tdb delete <fileId> [--recursive]` | `tdb_delete_file` |
 | `repeats.read` | 读某个文件现有的全部复读点（起止时间、原文、翻译） | `tdb repeats` | `tdb_get_repeats` |
 | `repeats.write` | 批量写入复读点，replace 覆盖全部或 append 追加 | `tdb set-repeats` | `tdb_set_repeats` |
 | `make.audio` | 用复读点合成听力文件（每句重复 N 次 + 间隔 + 语速，附带歌词），异步任务可查询、等待、取消 | `tdb make` / `task` / `wait` / `cancel` | `tdb_make_audio` / `tdb_get_task` / `tdb_cancel_task` |
@@ -66,7 +67,7 @@ App 通过 `capabilities.abilities` 声明能力，当前一共七项。每项�
 
 配对与探测不算独立能力，但每次连接都会用到：`tdb ping`（MCP `tdb_capabilities`）确认连通并返回 App 版本、接口版本、能力清单、单次复读点上限（500 条）、并发任务数（1）和单文件上传上限（200MB）。
 
-**没开放的**（用户问起如实说，别用别的命令硬凑）：播放控制、文件的移动和重命名、文件夹的增删改、从手机下载原始音频、词本 / 生词 / Coach、订阅 / IAP / 云盘 / WiFi 传输、任何云端接口（全部操作只在局域网内）。确实需要就建议用户走听读宝的反馈渠道，协议以后可能扩。
+**没开放的**（用户问起如实说，别用别的命令硬凑）：播放控制、文件跨文件夹移动、新建文件夹（上传只能落进已存在的一级子目录，文件夹改名和删除是支持的）、从手机下载原始音频、词本 / 生词 / Coach、订阅 / IAP / 云盘 / WiFi 传输、任何云端接口（全部操作只在局域网内）。确实需要就建议用户走听读宝的反馈渠道，协议以后可能扩。
 
 ### 想走 MCP 而不是命令行
 
@@ -128,9 +129,12 @@ tdb files --folder /BBC --recursive --json    # 连子文件夹一起列
 
 ```bash
 tdb upload ~/Downloads/lesson.mp3 --json
+tdb upload ~/Downloads/lesson.mp3 --folder 听力 --json
 ```
 
-返回 `fileId` / `name` / `size` / `existed`。拿到 fileId 就能直接写复读点，不用等 App 刷新列表。
+返回 `fileId` / `name` / `size` / `existed` / `folder`。拿到 fileId 就能直接写复读点，不用等 App 刷新列表。
+
+`--folder` 可选，只能是听读宝 Documents 下**已经存在的一级子目录名**：不能带 `/`、不能是 `.` 或 `..`。省略就落在 Documents 根目录。目录不存在会报 `NOT_FOUND`，接口不会替你建文件夹。
 
 上传前自己先检查三样，别等报错：
 
@@ -142,7 +146,7 @@ tdb upload ~/Downloads/lesson.mp3 --json
 
 三个坑：
 
-- **落点是 Documents 根目录**，接口没有「传到哪个文件夹」的参数。用户要求归到某个文件夹，只能告诉他在 App 里手动移。
+- **落点只能是 Documents 根目录或它的一级子目录**：`--folder` 必须是 App 里已经建好的目录，二级目录、`..`、绝对路径都会被拒。要归到更深层目录，只能让用户在 App 里先建好一级目录，再移进子目录。
 - **同名不覆盖**：`existed: true` 表示听读宝里已经有同名文件，这次什么都没传上去。想用新版本替换，两条路：让用户在 App 里删掉旧的，或者把本地文件改个名再传（旧文件还在，要清就走删除流程）。别假装已经更新了。
 - **一次只能传一个文件**。多文件就循环调用，每个都报 fileId。
 

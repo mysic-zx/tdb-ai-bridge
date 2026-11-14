@@ -82,9 +82,12 @@ function helpText(): string {
   pair [--ip 本机IP]            显示二维码，听读宝扫码自动完成配对
   files [--folder 路径] [--keyword 关键词] [--recursive] [--json]
                                 列出音频文件
-  upload <本地文件> [--json]    把电脑上的音频传到听读宝（≤200MB）
-  delete <fileId> [--yes] [--json]
-                                删除听读宝里的音频文件，危险操作
+  upload <本地文件> [--folder 子目录] [--json]
+                                把电脑上的音频传到听读宝（≤200MB，--folder 只能是一级子目录）
+  delete <fileId> [--recursive] [--yes] [--json]
+                                删除音频文件；删文件夹必须加 --recursive，危险操作
+  rename <fileId> <新名字> [--json]
+                                重命名音频/视频文件或文件夹，只在原目录改名
   repeats <fileId> [--json]     读取复读点
   set-repeats <fileId> --file 文件.json [--mode replace|append] [--json]
                                 批量写入复读点
@@ -230,18 +233,20 @@ async function runFiles(flags: Map<string, string | true>, json: boolean): Promi
   return 0;
 }
 
-async function runUpload(positional: string[], json: boolean): Promise<number> {
+async function runUpload(positional: string[], flags: Map<string, string | true>, json: boolean): Promise<number> {
   const localPath = positional[0];
   if (!localPath) throw new UsageError("缺少本地文件路径，例: tdb upload ~/Music/lesson.mp3");
   if (!existsSync(localPath)) throw new UsageError(`文件不存在：${localPath}`);
   const size = statSync(localPath).size;
   if (size === 0) throw new UsageError("文件是空的");
+  const folder = stringFlag(flags, "folder");
 
   const client = new TdbClient(loadConfig());
   if (!json) {
-    console.log(`正在上传 ${localPath}（${(size / 1024 / 1024).toFixed(1)}MB），大文件需要等一会…`);
+    const dest = folder ? `到「${folder}」` : "";
+    console.log(`正在上传 ${localPath}${dest}（${(size / 1024 / 1024).toFixed(1)}MB），大文件需要等一会…`);
   }
-  const result = await client.uploadFile(localPath);
+  const result = await client.uploadFile(localPath, folder);
   if (json) {
     console.log(JSON.stringify(result, null, 2));
     return 0;
@@ -251,6 +256,9 @@ async function runUpload(positional: string[], json: boolean): Promise<number> {
   } else {
     console.log(`上传完成：${result.name}（${(result.size / 1024 / 1024).toFixed(1)}MB）`);
   }
+  if (result.folder) {
+    console.log(`落点：/${result.folder}/${result.name}`);
+  }
   console.log(`fileId: ${result.fileId}`);
   console.log(`下一步: tdb set-repeats ${result.fileId} --file repeats.json`);
   return 0;
@@ -259,16 +267,22 @@ async function runUpload(positional: string[], json: boolean): Promise<number> {
 /** CLI 是人直接敲的，删除必须二次确认；AI 走 --json 时也不允许跳过确认。 */
 async function runDelete(positional: string[], flags: Map<string, string | true>, json: boolean): Promise<number> {
   const fileId = requireFileId(positional);
+  const isFolder = fileId.startsWith("dir_");
+  const recursive = flags.has("recursive") || flags.has("yes");
   const client = new TdbClient(loadConfig());
 
+  if (isFolder && !recursive) {
+    throw new UsageError("这是文件夹，删除会连同里面的文件和复读点一起删掉。确认后加 --recursive 再执行");
+  }
   if (json && !flags.has("yes")) {
     throw new UsageError("AI 不允许直接删除：先把要删的文件报给用户，征得同意后由用户手动执行这条命令");
   }
   if (!flags.has("yes")) {
-    const repeats = await client.getRepeats(fileId).catch(() => null);
-    const line = repeats
-      ? `将删除「${repeats.name}」及其 ${repeats.items.length} 条复读点，此操作不可恢复`
-      : `将删除文件 ${fileId}，此操作不可恢复`;
+    const line = isFolder
+      ? `将递归删除文件夹 ${fileId} 及其里面的全部文件和复读点，此操作不可恢复`
+      : await client.getRepeats(fileId)
+          .then((repeats) => `将删除「${repeats.name}」及其 ${repeats.items.length} 条复读点，此操作不可恢复`)
+          .catch(() => `将删除文件 ${fileId}，此操作不可恢复`);
     const readline = createInterface({ input: process.stdin, output: process.stdout });
     const answer = await readline.question(`${line}，确认请输入 y：`);
     readline.close();
@@ -278,12 +292,34 @@ async function runDelete(positional: string[], flags: Map<string, string | true>
     }
   }
 
-  const result = await client.deleteFile(fileId);
+  const result = await client.deleteFile(fileId, { recursive });
   if (json) {
     console.log(JSON.stringify(result, null, 2));
     return 0;
   }
   console.log(`已删除 ${result.fileId}`);
+  return 0;
+}
+
+async function runRename(positional: string[], json: boolean): Promise<number> {
+  const fileId = requireFileId(positional);
+  const newName = positional[1];
+  if (!newName) throw new UsageError("缺少新名字，例: tdb rename <fileId> 第01课");
+
+  const result = await new TdbClient(loadConfig()).renameFile(fileId, newName);
+  if (json) {
+    console.log(JSON.stringify(result, null, 2));
+    return 0;
+  }
+  if (!result.renamed) {
+    console.log(`名字没变：${result.name}`);
+    return 0;
+  }
+  console.log(`已重命名为：${result.name}`);
+  console.log(`路径：${result.path}`);
+  if (result.fileId !== fileId) {
+    console.log(`新的 fileId: ${result.fileId}（旧 id 已作废）`);
+  }
   return 0;
 }
 
@@ -588,9 +624,11 @@ export async function runCli(argv: string[]): Promise<number> {
       case "files":
         return await runFiles(flags, json);
       case "upload":
-        return await runUpload(positional, json);
+        return await runUpload(positional, flags, json);
       case "delete":
         return await runDelete(positional, flags, json);
+      case "rename":
+        return await runRename(positional, json);
       case "repeats":
         return await runRepeats(positional, json);
       case "set-repeats":

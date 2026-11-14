@@ -53,7 +53,7 @@ tdb://pair?host=192.168.1.23&port=8765&token=xxx
   "app": "听读宝",
   "version": "3.8.2",
   "apiVersion": 1,
-  "abilities": ["files.read", "files.upload", "files.delete", "repeats.read", "repeats.write", "make.audio", "make.download"],
+  "abilities": ["files.read", "files.upload", "files.rename", "files.delete", "repeats.read", "repeats.write", "make.audio", "make.download"],
   "limits": {
     "maxRepeatsPerRequest": 500,
     "maxConcurrentTasks": 1,
@@ -94,9 +94,11 @@ tdb://pair?host=192.168.1.23&port=8765&token=xxx
 
 ## POST /files
 
-把电脑上的音频传到听读宝。`multipart/form-data`，文件字段名 `file`。
+把电脑上的音频传到听读宝。`multipart/form-data`，文件字段 `file`，可选文本字段 `folder`。
 
-限制：常见音视频格式（mp3 / m4a / aac / wav / flac / ape / ogg / wma / opus / mp4 / m4v / mov / mkv / avi / webm），单文件 ≤ `limits.maxUploadFileBytes`（当前 200MB），落到 App 的 Documents 根目录。
+限制：常见音视频格式（mp3 / m4a / aac / wav / flac / ape / ogg / wma / opus / mp4 / m4v / mov / mkv / avi / webm），单文件 ≤ `limits.maxUploadFileBytes`（当前 200MB）。
+
+不传 `folder` 时落到 App 的 Documents 根目录。传了 `folder` 时只能是 Documents 下**已存在的一级子目录名**：不能带 `/`、不能是 `.` 或 `..`、不能是隐藏目录。目录不存在返回 `NOT_FOUND`（接口不负责创建文件夹）。
 
 文件名已存在时不覆盖，直接返回已有文件的信息，重试安全。
 
@@ -107,20 +109,53 @@ tdb://pair?host=192.168.1.23&port=8765&token=xxx
   "fileId": "9d1f0c7a2b3e4d5f6a7b8c9d0e1f2a3b",
   "name": "lesson.mp3",
   "size": 29384756,
-  "existed": false
+  "existed": false,
+  "folder": "听力"
 }
 ```
+
+`folder` 是实际落点文件夹名，根目录时为空字符串。
 
 `fileId` 就是该文件的 MD5，后续接口都用它。
 
 ## DELETE /files/{fileId}
 
-删除一个音频文件，连同它的复读点和歌词一起清掉。**不可恢复**，协议约定 AI 必须先征得用户同意才能调。
+删除一个音频/视频文件，连同它的复读点和歌词一起清掉。**不可恢复**，协议约定 AI 必须先征得用户同意才能调。
+
+删除文件夹（`fileId` 以 `dir_` 开头）必须加 `?recursive=1`：会把文件夹、里面所有文件和各自的复读点一起删掉。不带这个参数返回 `INVALID_ARGUMENT`，防止误删整个目录。
 
 响应：
 
 ```json
 { "fileId": "9d1f0c7a2b3e4d5f6a7b8c9d0e1f2a3b", "deleted": true }
+```
+
+## POST /files/{fileId}/rename
+
+重命名文件或文件夹，**只在原目录改名**，不能换文件夹（要移动另行设计）。
+
+```json
+{ "name": "第01课" }
+```
+
+规则：
+
+- 文件不写后缀时沿用原后缀（`第01课` → `第01课.mp3`）；写了后缀就必须是常见音视频格式。
+- 名字里不能有 `/`、`\`、`:`，不能以 `.` 开头，不能是 `.` 或 `..`。
+- 音频改名时，旁边同名的 `.lrc` / `.srt` 歌词会一起改名，不影响歌词。
+- 目标名字已存在返回 `INVALID_ARGUMENT`；名字和原来一样时返回 `renamed: false`，不算失败。
+- 文件内容没变，`fileId`（md5）不变，复读点和收藏自动跟着走；文件夹的 `fileId` 按路径算，改名后**会变**，旧 id 作废。
+
+响应：
+
+```json
+{
+  "fileId": "9d1f0c7a2b3e4d5f6a7b8c9d0e1f2a3b",
+  "name": "第01课.mp3",
+  "path": "/听力/第01课.mp3",
+  "type": "audio",
+  "renamed": true
+}
 ```
 
 ## GET /files/{fileId}/repeats

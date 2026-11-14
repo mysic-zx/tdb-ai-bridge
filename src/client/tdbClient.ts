@@ -47,11 +47,22 @@ export interface UploadResult {
   name: string;
   size: number;
   existed: boolean;
+  /** 落点文件夹名，空字符串表示 Documents 根目录（老版本 App 不返回这个字段） */
+  folder?: string;
 }
 
 export interface DeleteResult {
   fileId: string;
   deleted: boolean;
+}
+
+export interface RenameResult {
+  /** 文件重命名后 md5 不变；文件夹重命名后 fileId 会变，旧 id 作废 */
+  fileId: string;
+  name: string;
+  path: string;
+  type: "audio" | "video" | "folder";
+  renamed: boolean;
 }
 
 export interface DownloadedOutput {
@@ -148,10 +159,11 @@ export class TdbClient {
   }
 
   /**
-   * 上传本地音频到听读宝。multipart 的超时放宽到 10 分钟，
+   * 上传本地音频到听读宝。folder 可选，只能是 Documents 下已存在的一级子目录名，
+   * 省略则落在 Documents 根目录。multipart 的超时放宽到 10 分钟，
    * 200MB 文件在普通 WiFi 上要传一会儿。
    */
-  async uploadFile(localPath: string): Promise<UploadResult> {
+  async uploadFile(localPath: string, folder?: string): Promise<UploadResult> {
     const stat = statSync(localPath);
     if (stat.size > MAX_UPLOAD_BYTES) {
       throw new TdbApiError("INVALID_ARGUMENT", `文件 ${(stat.size / 1024 / 1024).toFixed(1)}MB 超过 200MB 上限`, 0);
@@ -162,7 +174,18 @@ export class TdbClient {
     const fileName = basename(localPath);
     const boundary = `----tdb-${randomBytes(16).toString("hex")}`;
     const escapedName = fileName.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-    const body = Buffer.concat([
+    const parts: Buffer[] = [];
+    if (folder) {
+      parts.push(
+        Buffer.from(
+          `--${boundary}\r\n` +
+            `Content-Disposition: form-data; name="folder"\r\n` +
+            `Content-Type: text/plain; charset=utf-8\r\n\r\n` +
+            `${folder}\r\n`,
+        ),
+      );
+    }
+    parts.push(
       Buffer.from(
         `--${boundary}\r\n` +
           `Content-Disposition: form-data; name="file"; filename="${escapedName}"\r\n` +
@@ -170,7 +193,8 @@ export class TdbClient {
       ),
       readFileSync(localPath),
       Buffer.from(`\r\n--${boundary}--\r\n`),
-    ]);
+    );
+    const body = Buffer.concat(parts);
 
     // request() 只会发 JSON，multipart 单独走一份，错误处理逻辑保持一致
     const controller = new AbortController();
@@ -276,8 +300,21 @@ export class TdbClient {
     }
   }
 
-  deleteFile(fileId: string): Promise<DeleteResult> {
-    return this.request<DeleteResult>("DELETE", `/files/${encodeURIComponent(fileId)}`);
+  /**
+   * 删除文件或文件夹。文件夹必须显式带 recursive=true，
+   * 否则服务端会拒绝，防止误删整个目录。
+   */
+  deleteFile(fileId: string, options: { recursive?: boolean } = {}): Promise<DeleteResult> {
+    const query = options.recursive ? "?recursive=1" : "";
+    return this.request<DeleteResult>("DELETE", `/files/${encodeURIComponent(fileId)}${query}`);
+  }
+
+  /**
+   * 重命名文件或文件夹，只在原目录改名，不能换目录。
+   * 文件不写后缀时沿用原后缀；文件夹改名后返回新的 fileId。
+   */
+  renameFile(fileId: string, name: string): Promise<RenameResult> {
+    return this.request<RenameResult>("POST", `/files/${encodeURIComponent(fileId)}/rename`, { name });
   }
 
   make(body: MakeRequest): Promise<MakeResponse> {
