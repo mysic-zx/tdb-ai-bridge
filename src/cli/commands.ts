@@ -84,6 +84,7 @@ function helpText(): string {
                                 列出音频文件
   upload <本地文件> [--folder 子目录] [--json]
                                 把电脑上的音频传到听读宝（≤200MB，--folder 只能是一级子目录）
+  mkdir <文件夹名> [--json]    在 Documents 下新建一级文件夹
   delete <fileId> [--recursive] [--yes] [--json]
                                 删除音频文件；删文件夹必须加 --recursive，危险操作
   rename <fileId> <新名字> [--json]
@@ -298,6 +299,20 @@ async function runDelete(positional: string[], flags: Map<string, string | true>
     return 0;
   }
   console.log(`已删除 ${result.fileId}`);
+  return 0;
+}
+
+async function runMkdir(positional: string[], json: boolean): Promise<number> {
+  const name = positional[0];
+  if (!name) throw new UsageError("缺少文件夹名字，例: tdb mkdir 听力");
+
+  const result = await new TdbClient(loadConfig()).createFolder(name);
+  if (json) {
+    console.log(JSON.stringify(result, null, 2));
+    return 0;
+  }
+  console.log(result.created ? `已创建文件夹：${result.path}` : `文件夹已存在：${result.path}`);
+  console.log(`fileId: ${result.fileId}`);
   return 0;
 }
 
@@ -629,6 +644,8 @@ export async function runCli(argv: string[]): Promise<number> {
         return await runDelete(positional, flags, json);
       case "rename":
         return await runRename(positional, json);
+      case "mkdir":
+        return await runMkdir(positional, json);
       case "repeats":
         return await runRepeats(positional, json);
       case "set-repeats":

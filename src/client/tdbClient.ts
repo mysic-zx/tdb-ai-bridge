@@ -56,6 +56,14 @@ export interface DeleteResult {
   deleted: boolean;
 }
 
+export interface CreateFolderResult {
+  fileId: string;
+  name: string;
+  path: string;
+  type: "folder";
+  created: boolean;
+}
+
 export interface RenameResult {
   /** 文件重命名后 md5 不变；文件夹重命名后 fileId 会变，旧 id 作废 */
   fileId: string;
@@ -307,6 +315,14 @@ export class TdbClient {
   deleteFile(fileId: string, options: { recursive?: boolean } = {}): Promise<DeleteResult> {
     const query = options.recursive ? "?recursive=1" : "";
     return this.request<DeleteResult>("DELETE", `/files/${encodeURIComponent(fileId)}${query}`);
+  }
+
+  /**
+   * 在 Documents 下新建一级文件夹。名字已存在且是文件夹时返回 created=false，
+   * 重复调用不会报错；同名文件已存在时报 INVALID_ARGUMENT。
+   */
+  createFolder(name: string): Promise<CreateFolderResult> {
+    return this.request<CreateFolderResult>("POST", "/folders", { name });
   }
 
   /**

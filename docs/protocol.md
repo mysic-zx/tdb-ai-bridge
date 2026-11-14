@@ -53,7 +53,7 @@ tdb://pair?host=192.168.1.23&port=8765&token=xxx
   "app": "听读宝",
   "version": "3.8.2",
   "apiVersion": 1,
-  "abilities": ["files.read", "files.upload", "files.rename", "files.delete", "repeats.read", "repeats.write", "make.audio", "make.download"],
+  "abilities": ["files.read", "files.upload", "files.rename", "files.delete", "files.mkdir", "repeats.read", "repeats.write", "make.audio", "make.download"],
   "limits": {
     "maxRepeatsPerRequest": 500,
     "maxConcurrentTasks": 1,
@@ -98,7 +98,7 @@ tdb://pair?host=192.168.1.23&port=8765&token=xxx
 
 限制：常见音视频格式（mp3 / m4a / aac / wav / flac / ape / ogg / wma / opus / mp4 / m4v / mov / mkv / avi / webm），单文件 ≤ `limits.maxUploadFileBytes`（当前 200MB）。
 
-不传 `folder` 时落到 App 的 Documents 根目录。传了 `folder` 时只能是 Documents 下**已存在的一级子目录名**：不能带 `/`、不能是 `.` 或 `..`、不能是隐藏目录。目录不存在返回 `NOT_FOUND`（接口不负责创建文件夹）。
+不传 `folder` 时落到 App 的 Documents 根目录。传了 `folder` 时只能是 Documents 下**已存在的一级子目录名**：不能带 `/`、不能是 `.` 或 `..`、不能是隐藏目录。目录不存在返回 `NOT_FOUND`，可以先调 `POST /folders` 建好再传。
 
 文件名已存在时不覆盖，直接返回已有文件的信息，重试安全。
 
@@ -117,6 +117,33 @@ tdb://pair?host=192.168.1.23&port=8765&token=xxx
 `folder` 是实际落点文件夹名，根目录时为空字符串。
 
 `fileId` 就是该文件的 MD5，后续接口都用它。
+
+## POST /folders
+
+在 Documents 下新建一级文件夹。
+
+```json
+{ "name": "听力" }
+```
+
+规则：
+
+- 只能在 Documents 根下建，不支持嵌套（和上传的 `folder` 限制一致）。
+- 名字不能带 `/`、`\`、`:`，不能以 `.` 开头，不能是 `.` 或 `..`。
+- 不能和系统目录重名（`Inbox` 以及 App 隐藏的转换/转写目录），会返回 `INVALID_ARGUMENT`。
+- 同名文件夹已存在时返回 `created: false`，可重复调用；同名是文件则返回 `INVALID_ARGUMENT`。
+
+响应 `201`（新建）或 `200`（已存在）：
+
+```json
+{
+  "fileId": "dir_5d41402abc4b2a76b9719d911017c592",
+  "name": "听力",
+  "path": "/听力",
+  "type": "folder",
+  "created": true
+}
+```
 
 ## DELETE /files/{fileId}
 

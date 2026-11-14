@@ -129,6 +129,21 @@ export function registerTools(server: McpServer, client: TdbClient): void {
   );
 
   server.tool(
+    "tdb_create_folder",
+    "在听读宝 Documents 下新建一级文件夹。同名文件夹已存在时返回 created:false，不会报错，可以放心重试；同名文件占用了这个名字会报错。上传时如果目标文件夹不存在，可以先用它建好再传。",
+    {
+      name: z.string().min(1).describe("文件夹名字，不能带 / \\ :，也不能以 . 开头"),
+    },
+    async ({ name }) => {
+      try {
+        return jsonResult(await client.createFolder(name));
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.tool(
     "tdb_rename_file",
     "重命名听读宝里的音频/视频文件或文件夹，只在原目录改名，不能换文件夹。文件不写后缀时沿用原后缀，旁边的同名歌词会一起改。文件改名后 fileId（md5）不变；文件夹改名后 fileId 会变，旧的 dir_ 开头 id 作废。",
     {
